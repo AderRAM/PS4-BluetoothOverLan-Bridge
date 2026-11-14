@@ -1,11 +1,18 @@
 #!/usr/bin/env python3
-import socket, struct, threading, glob, time, evdev
+import socket, struct, threading, glob, time, os, argparse
+import evdev
 from evdev import ecodes as e
 
-# Broadcast to the whole subnet so a DHCP IP change on the PC (e.g. after a
-# reboot) never breaks the bridge. The receiver binds 0.0.0.0:9999 and catches it.
-WINDOWS_IP   = "192.168.1.255"
-WINDOWS_PORT = 9999
+# Parse command-line arguments for bind/broadcast address and port
+parser = argparse.ArgumentParser(description='PS4 Bluetooth Over Lan Bridge Sender')
+parser.add_argument('--broadcast', default=os.environ.get('SENDER_BCAST', '255.255.255.255'),
+                    help='Broadcast address (default: 255.255.255.255 or SENDER_BCAST env)')
+parser.add_argument('--port', type=int, default=int(os.environ.get('SENDER_PORT', '9999')),
+                    help='UDP port (default: 9999 or SENDER_PORT env)')
+args = parser.parse_args()
+
+WINDOWS_IP   = args.broadcast
+WINDOWS_PORT = args.port
 PACKET_FMT   = "<HBBBBBbbBBiiiiiiB"
 
 BTN_MAP = {

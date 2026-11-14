@@ -2,8 +2,16 @@ import socket, struct, threading, time, sys, re, ctypes, os
 import keyboard
 import vgamepad as vg
 
+# ── Parse port from environment or argument ─────────────────────────────
+_parser = __import__('argparse').ArgumentParser(description='PS4 Bluetooth Over Lan Bridge Receiver')
+_parser.add_argument('--port', type=int, default=int(os.environ.get('RECEIVER_PORT', '9999')),
+                     help='UDP port to listen on (default: 9999 or RECEIVER_PORT env)')
+_parser_args = _parser.parse_args()
+PORT = _parser_args.port
+# ────────────────────────────────────────────────────────────────────────
+
 # ── Crash log path (Option A: env-variable-friendly) ──────────────────
-# On Windows uses %APPDATA%\ds4bridge\, on other OS uses ~/local/share/ds4bridge\.
+# On Windows uses %APPDATA%\ds4bridge\, on other OS uses ~/local/share/ds4bridge.
 # Directory is created automatically if it does not exist.
 if sys.platform == 'win32':
     _crash_base = os.environ.get('APPDATA', os.path.expanduser('~'))
@@ -12,7 +20,7 @@ else:
 _CRASH_LOG = os.path.join(_crash_base, 'ds4bridge', 'crash.log')
 os.makedirs(os.path.dirname(_CRASH_LOG), exist_ok=True)
 CRASH_LOG = _CRASH_LOG  # export for use throughout the file
-# ──────────────────────────────────────────────────────────────────────
+# ────────────────────────────────────────────────────────────────────────
 
 # ── SendInput for mouse buttons (works in focused game windows) ─
 class _MOUSEINPUT(ctypes.Structure):
@@ -47,7 +55,6 @@ def _enable_vt100():
 _enable_vt100()
 sys.stdout.reconfigure(encoding='utf-8')
 
-PORT        = 9999
 PACKET_FMT  = '<HBBBBBbbBBiiiiiiB'
 PACKET_SIZE = struct.calcsize(PACKET_FMT)
 
@@ -654,22 +661,10 @@ def main():
     finally:
         sys.stdout.write('\033[?25h\033[0m\033[?1049l')
         sys.stdout.flush()
-
-def _ensure_admin():
-    """Relaunch elevated so SendInput (mouse/buttons) reaches elevated foreground
-    windows (games, admin apps). UIPI blocks synthetic input from a lower-integrity
-    process into a higher-integrity focused window — running as admin fixes that."""
-    try:
-        if ctypes.windll.shell32.IsUserAnAdmin():
-            return
-    except Exception:
-        return
-    params = ' '.join(f'"{a}"' for a in sys.argv)
-    try:
-        ctypes.windll.shell32.ShellExecuteW(None, "runas", sys.executable, params, None, 1)
-    except Exception:
-        return  # elevation declined/failed — fall through and run unelevated
-    sys.exit(0)
+        try: gamepad.close()
+        except Exception: pass
+        try: _mouse_dev.close()
+        except Exception: pass
 
 if __name__ == '__main__':
     _ensure_admin()
@@ -698,6 +693,23 @@ if __name__ == '__main__':
             sys.stdout.flush()
         except Exception:
             pass
+        tb = traceback.format_exc()
         with open(CRASH_LOG, 'a', encoding='utf-8') as f:
-            f.write(traceback.format_exc())
+            f.write(tb)
         print(traceback.format_exc())
+
+def _ensure_admin():
+    """Relaunch elevated so SendInput (mouse/buttons) reaches elevated foreground
+    windows (games, admin apps). UIPI blocks synthetic input from a lower-integrity
+    process into a higher-integrity focused window — running as admin fixes that."""
+    try:
+        if ctypes.windll.shell32.IsUserAnAdmin():
+            return
+    except Exception:
+        return
+    params = ' '.join(f'"{a}"' for a in sys.argv)
+    try:
+        ctypes.windll.shell32.ShellExecuteW(None, "runas", sys.executable, params, None, 1)
+    except Exception:
+        return  # elevation declined/failed — fall through and run unelevated
+    sys.exit(0)

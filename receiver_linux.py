@@ -12,7 +12,20 @@ import socket, struct, threading, time, sys, re, os, subprocess, glob
 import evdev
 from evdev import UInput, AbsInfo, ecodes as e
 
-PORT        = 9999
+# ── Parse port from environment or argument ───────────────────────────────
+_parser = __import__('argparse').ArgumentParser(description='PS4 Bluetooth Over Lan Bridge Receiver (Linux)')
+_parser.add_argument('--port', type=int, default=int(os.environ.get('RECEIVER_PORT', '9999')),
+                     help='UDP port to listen on (default: 9999 or RECEIVER_PORT env)')
+_parser.add_argument('--no-hotkeys', action='store_true',
+                     help='Skip key-learn entirely')
+_parser.add_argument('--reverse', action='store_true',
+                     help='Invert gyro→mouse direction')
+parser_args = _parser.parse_args()
+PORT = parser_args.port
+NO_HOTKEYS = parser_args.no_hotkeys
+REVERSE = parser_args.reverse
+# ────────────────────────────────────────────────────────────────────────
+
 PACKET_FMT  = '<HBBBBBbbBBiiiiiiB'
 PACKET_SIZE = struct.calcsize(PACKET_FMT)
 
@@ -45,17 +58,17 @@ state = dict(
     pps=0, addr='---', connected=False, usb=False,
 )
 
-# ── Gyro modes ────────────────────────────────────────────────────
+# ── Gyro modes ────────────────────────────────────────────────────────────
 GYRO_JOYSTICK    = False
 GYRO_MOUSE       = False
-GYRO_REVERSE     = '--reverse' in sys.argv
+GYRO_REVERSE     = '--reverse' in sys.argv or REVERSE
 GYRO_STICK_SENS  = 1 / 45000
 GYRO_MOUSE_SENS  = 1 / 4000
 GYRO_DEAD        = 1200
 STICK_MOUSE_SENS = 0.15
 STICK_DEAD       = 12
 
-# ── Key-learn ─────────────────────────────────────────────────────
+# ── Key-learn ─────────────────────────────────────────────────────────────
 # Scan codes for keys that shouldn't be hotkeys (letters, numbers,
 # enter, backspace, space, modifiers, etc.). F-keys are NOT blocked.
 _KEY_BLOCKLIST = {1, 14, 15, 28, 29, 42, 54, 56, 57, 58, 284, 285, 312,
@@ -71,12 +84,15 @@ _LAST_KEY    = ''
 _LAST_TOGGLE = 0.0
 _COOLDOWN    = 0.4
 
-_NO_HOTKEYS  = '--no-hotkeys' in sys.argv
+_NO_HOTKEYS  = '--no-hotkeys' in sys.argv or NO_HOTKEYS
 
-_CONFIG_FILE = os.path.expanduser('~/.config/ds4bridge/hotkeys.conf')
-CRASH_LOG    = os.path.expanduser('~/.local/share/ds4bridge/crash.log')
-os.makedirs(os.path.dirname(CRASH_LOG),    exist_ok=True)
-os.makedirs(os.path.dirname(_CONFIG_FILE), exist_ok=True)
+# Config file path: use XDG_CONFIG_HOME if available, otherwise ~/config
+import pathlib
+_XDG_CONFIG = os.environ.get('XDG_CONFIG_HOME')
+_CONFIG_FILE = pathlib.Path(_XDG_CONFIG or os.path.expanduser('~/.config')) / 'ds4bridge' / 'hotkeys.conf'
+CRASH_LOG    = pathlib.Path(os.environ.get('XDG_CACHE_HOME') or os.path.expanduser('~/.local/share/ds4bridge')) / 'crash.log'
+pathlib.Path.mkdir(_CONFIG_FILE.parent, parents=True, exist_ok=True)
+pathlib.Path.mkdir(CRASH_LOG.parent, parents=True, exist_ok=True)
 
 # ── Hotkey config persistence ─────────────────────────────────────
 def _save_hotkeys():
